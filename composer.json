@@ -1,10 +1,10 @@
 {
-    "name": "topthink/think-captcha",
-    "description": "captcha package for thinkphp",
+    "name": "adcbguo/think-captcha",
+    "description": "",
     "authors": [
         {
-            "name": "yunwuxin",
-            "email": "448901948@qq.com"
+            "name": "adcbguo",
+            "email": "adcbguo@qq.com"
         }
     ],
     "license": "Apache-2.0",
