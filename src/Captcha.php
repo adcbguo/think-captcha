@@ -1,24 +1,15 @@
 <?php
-// +----------------------------------------------------------------------
-// | ThinkPHP [ WE CAN DO IT JUST THINK ]
-// +----------------------------------------------------------------------
-// | Copyright (c) 2006-2015 http://thinkphp.cn All rights reserved.
-// +----------------------------------------------------------------------
-// | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
-// +----------------------------------------------------------------------
-// | Author: yunwuxin <448901948@qq.com>
-// +----------------------------------------------------------------------
 
 namespace think\captcha;
 
 use Exception;
+use think\Cache;
 use think\Config;
 use think\Response;
-use think\Session;
 
 class Captcha
 {
-    private $im    = null; // 验证码图片实例
+    private $im = null; // 验证码图片实例
     private $color = null; // 验证码字体颜色
 
     /**
@@ -27,9 +18,9 @@ class Captcha
     private $config = null;
 
     /**
-     * @var Session|null
+     * @var Cache|null
      */
-    private $session = null;
+    private $cache = null;
 
     // 验证码字符集合
     protected $codeSet = '2345678abcdefhijkmnpqrstuvwxyzABCDEFGHJKLMNPQRTUVWXY';
@@ -63,13 +54,13 @@ class Captcha
     /**
      * 架构方法 设置参数
      * @access public
-     * @param Config  $config
-     * @param Session $session
+     * @param Config $config
+     * @param Cache $cache
      */
-    public function __construct(Config $config, Session $session)
+    public function __construct(Config $config, Cache $cache)
     {
-        $this->config  = $config;
-        $this->session = $session;
+        $this->config = $config;
+        $this->cache = $cache;
     }
 
     /**
@@ -93,19 +84,20 @@ class Captcha
 
     /**
      * 创建验证码
+     * @param string $codeKey
      * @return array
      * @throws Exception
      */
-    protected function generate(): array
+    protected function generate(string $codeKey): array
     {
         $bag = '';
 
         if ($this->math) {
-            $this->useZh  = false;
+            $this->useZh = false;
             $this->length = 5;
 
-            $x   = random_int(10, 30);
-            $y   = random_int(1, 9);
+            $x = random_int(10, 30);
+            $y = random_int(1, 9);
             $bag = "{$x} + {$y} = ";
             $key = $x + $y;
             $key .= '';
@@ -123,55 +115,50 @@ class Captcha
             $key = mb_strtolower($bag, 'UTF-8');
         }
 
+
         $hash = password_hash($key, PASSWORD_BCRYPT, ['cost' => 10]);
 
-        $this->session->set('captcha', [
-            'key' => $hash,
-        ]);
+        $this->cache->set("captcha_{$codeKey}", $hash);
 
-        return [
-            'value' => $bag,
-            'key'   => $hash,
-        ];
+        return ['key' => $hash, 'value' => $bag];
     }
 
     /**
      * 验证验证码是否正确
-     * @access public
-     * @param string $code 用户验证码
-     * @return bool 用户验证码是否正确
+     * @param string $code
+     * @param string $codeKey
+     * @return bool
      */
-    public function check(string $code): bool
+    public function check(string $code, string $codeKey): bool
     {
-        if (!$this->session->has('captcha')) {
+        if (!$this->cache->has("captcha_{$codeKey}")) {
             return false;
         }
 
-        $key = $this->session->get('captcha.key');
+        $key = $this->cache->get("captcha_{$codeKey}");
 
         $code = mb_strtolower($code, 'UTF-8');
 
         $res = password_verify($code, $key);
 
         if ($res) {
-            $this->session->delete('captcha');
+            $this->cache->delete("captcha_{$codeKey}");
         }
 
         return $res;
     }
 
     /**
-     * 输出验证码并把验证码的值保存的session中
+     * 输出验证码并把验证码的值保存
      * @access public
      * @param null|string $config
-     * @param bool        $api
      * @return Response
      */
-    public function create(string $config = null, bool $api = false): Response
+    public function create(string $codeKey, string $config = null): Response
     {
         $this->configure($config);
 
-        $generator = $this->generate();
+        $generator = $this->generate($codeKey);
 
         // 图片宽(px)
         $this->imageW || $this->imageW = $this->length * $this->fontSize * 1.5 + $this->length * $this->fontSize / 2;
@@ -182,7 +169,7 @@ class Captcha
         $this->imageH = intval($this->imageH);
 
         // 建立一幅 $this->imageW x $this->imageH 的图像
-        $this->im = imagecreate((int) $this->imageW, (int) $this->imageH);
+        $this->im = imagecreate((int)$this->imageW, (int)$this->imageH);
         // 设置背景
         imagecolorallocate($this->im, $this->bg[0], $this->bg[1], $this->bg[2]);
 
@@ -193,7 +180,7 @@ class Captcha
         $ttfPath = __DIR__ . '/../assets/' . ($this->useZh ? 'zhttfs' : 'ttfs') . '/';
 
         if (empty($this->fontttf)) {
-            $dir  = dir($ttfPath);
+            $dir = dir($ttfPath);
             $ttfs = [];
             while (false !== ($file = $dir->read())) {
                 if (substr($file, -4) == '.ttf' || substr($file, -4) == '.otf') {
@@ -224,8 +211,8 @@ class Captcha
 
         foreach ($text as $index => $char) {
 
-            $x     = $this->fontSize * ($index + 1) * ($this->math ? 1 : 1.5);
-            $y     = $this->fontSize + mt_rand(10, 20);
+            $x = $this->fontSize * ($index + 1) * ($this->math ? 1 : 1.5);
+            $y = $this->fontSize + mt_rand(10, 20);
             $angle = $this->math ? 0 : mt_rand(-40, 40);
 
             imagettftext($this->im, intval($this->fontSize), intval($this->fontSize), intval($x), intval($y), $this->color, $fontttf, $char);
@@ -269,7 +256,7 @@ class Captcha
         for ($px = $px1; $px <= $px2; $px = $px + 1) {
             if (0 != $w) {
                 $py = $A * sin($w * $px + $f) + $b + $this->imageH / 2; // y = Asin(ωx+φ) + b
-                $i  = (int) ($this->fontSize / 5);
+                $i = (int)($this->fontSize / 5);
                 while ($i > 0) {
                     imagesetpixel($this->im, intval($px + $i), intval($py + $i), $this->color); // 这里(while)循环画像素点比imagettftext和imagestring用字体大小一次画出（不用这while循环）性能要好很多
                     $i--;
@@ -278,18 +265,18 @@ class Captcha
         }
 
         // 曲线后部分
-        $A   = mt_rand(1, $this->imageH / 2); // 振幅
-        $f   = mt_rand(intval(-$this->imageH / 4), intval($this->imageH / 4)); // X轴方向偏移量
-        $T   = mt_rand($this->imageH, $this->imageW * 2); // 周期
-        $w   = (2 * M_PI) / $T;
-        $b   = $py - $A * sin($w * $px + $f) - $this->imageH / 2;
+        $A = mt_rand(1, $this->imageH / 2); // 振幅
+        $f = mt_rand(intval(-$this->imageH / 4), intval($this->imageH / 4)); // X轴方向偏移量
+        $T = mt_rand($this->imageH, $this->imageW * 2); // 周期
+        $w = (2 * M_PI) / $T;
+        $b = $py - $A * sin($w * $px + $f) - $this->imageH / 2;
         $px1 = $px2;
         $px2 = $this->imageW;
 
         for ($px = $px1; $px <= $px2; $px = $px + 1) {
             if (0 != $w) {
                 $py = $A * sin($w * $px + $f) + $b + $this->imageH / 2; // y = Asin(ωx+φ) + b
-                $i  = (int) ($this->fontSize / 5);
+                $i = (int)($this->fontSize / 5);
                 while ($i > 0) {
                     imagesetpixel($this->im, intval($px + $i), intval($py + $i), $this->color);
                     $i--;
@@ -322,7 +309,7 @@ class Captcha
     protected function background(): void
     {
         $path = __DIR__ . '/../assets/bgs/';
-        $dir  = dir($path);
+        $dir = dir($path);
 
         $bgs = [];
         while (false !== ($file = $dir->read())) {
